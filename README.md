@@ -1,0 +1,152 @@
+# Deauville Festival du Rire
+
+A Python application for the 10–13 June 2027 festival. It manages venues,
+artists, solo shows, lineups and workshops. The public website and admin use
+the same scheduling rules as the command line and the tests.
+
+The original requirements are in [PROJECT_BRIEF.md](PROJECT_BRIEF.md).
+The HTTP contract is in [API.md](API.md).
+
+## Install
+
+Use Python 3.11 or later and uv. Open a terminal in `deauville-starter-main`:
+
+```bash
+uv sync
+```
+
+The `uv.lock` file records the dependency versions. The project uses FastAPI
+and Uvicorn. Development dependencies include pytest, HTTPX and Ruff.
+
+## Run
+
+```bash
+uv run main.py
+uv run main.py programme 2027-06-11
+uv run main.py programme 2027-06-11 --venue le-kiosque
+uv run main.py artists
+uv run main.py now --at 2027-06-12T01:00
+uv run main.py serve
+```
+
+Open these addresses after starting the server:
+
+- Public programme: http://127.0.0.1:8000/
+- Admin: http://127.0.0.1:8000/admin/
+- Interactive API documentation: http://127.0.0.1:8000/docs
+
+Stop the server with Ctrl+C. Change the port with `serve --port 8001`.
+`uv run deauville` is also available as a shortcut for `uv run main.py`.
+
+Without uv, an already installed environment can run the same commands with
+`.venv/bin/python main.py` on macOS and Linux.
+
+The admin can add artists, schedule all three kinds of performances, edit or
+move a performance, cancel it, and register workshop participants. Changes
+are saved immediately. When a move changes an identifier, the API returns
+the new identifier.
+
+Times use `YYYY-MM-DDTHH:MM`, without a time zone or seconds. The server's
+local clock is used when `now` has no `--at` argument; run the server in the
+festival's local time zone (Europe/Paris). A show at 01:00 on 12 June belongs
+to the 11 June programme. At exactly 06:00, the new festival day begins.
+A performance is on stage from its start, inclusive, to its end, exclusive.
+
+## Data
+
+The supplied JSON contains 4 venues, 12 artists and 23 performances. It is
+loaded and checked before use. No database setup is needed.
+
+To experiment without changing the original programme:
+
+```bash
+cp data/festival.json data/practice.json
+uv run main.py --data data/practice.json serve
+```
+
+The `--data` option goes before the command and also works with `programme`,
+`artists` and `now`. Tests always use temporary files for writes.
+
+## Structure and choices
+
+| File | Responsibility |
+| --- | --- |
+| `main.py` | Starts the command line. |
+| `deauville/validation.py` | Checks text, numbers, dates and times; creates slugs. |
+| `deauville/models.py` | Defines `Artist`, `Venue`, `Performance`, `Solo`, `Lineup` and `Workshop`. |
+| `deauville/festival.py` | Owns the collections and enforces rules involving several objects. |
+| `deauville/errors.py` | Defines understandable errors for invalid values, missing objects, conflicts and storage failures. |
+| `deauville/storage.py` | Loads and saves JSON files. |
+| `deauville/service.py` | Connects model operations to storage for the API. |
+| `deauville/cli.py` | Reads arguments and prints the programme. |
+| `deauville/api.py` | Validates request shapes, calls the service and serves the existing website. |
+| `web/` | Supplied public and admin interfaces. |
+| `tests/` | Model, storage, CLI and API tests. |
+
+The implementation uses ordinary classes, dictionaries, lists, loops and
+functions. Type annotations describe the expected values. The few framework
+features are kept in the API module.
+
+`Artist` checks its name and creates its slug. `Venue` also checks its seats
+and address. `Performance` is an abstract base class: it contains the shared
+title, venue, start, duration and description. Its subclasses provide their
+artists, summary and additional saved fields. `Workshop` also changes how
+capacity is calculated.
+
+`Solo` checks the minimum age. `Lineup` checks distinct acts, the host and
+the minimum running time. `Workshop` checks participant names and its own
+limit. `Festival` checks references, festival dates, venue capacity and the
+30-minute breaks for venues and every artist role.
+
+The collections use private attributes by convention. Public methods return
+new dictionaries and lists, so editing a returned programme cannot change
+the stored objects. Performances are created from input values inside the
+festival. There is no public collection where a caller can append an
+unchecked show. A replacement is validated before the old show is removed.
+
+Custom exceptions identify the type of failure. The CLI prints a sentence;
+the API maps missing objects to 404, conflicts to 409, invalid values to 422
+and storage failures to 500. Malformed HTTP requests return a 422 list of
+validation problems.
+
+`JsonStorage.load()` rebuilds the festival through the model methods, which
+checks the rules again. Saving writes a temporary file in the same directory
+and then replaces the destination. If writing fails, the previous data file
+is kept. The service loads a fresh festival for each operation, saves a
+successful change, and only then returns success. A lock prevents requests
+in the same server process from overwriting each other's changes.
+
+For a future database, a new storage class would provide `load()` and
+`save()`, and the application would select it when creating the service.
+The festival and performance rules would stay in the same modules.
+
+## Checks
+
+```bash
+uv run pytest -q
+uv run ruff check .
+uv run ruff format --check .
+uv build
+```
+
+Tests cover the supplied programme, slug ordering, midnight and 06:00,
+30-minute boundaries in both directions, all artist roles, lineup duration,
+workshop capacity and duplicate names, failed moves, JSON validation,
+failed writes, concurrent registrations, HTTP status codes, static files
+and command-line errors.
+
+`uv build` creates a source archive and a wheel in `dist/`. The distribution
+includes the website and initial festival data.
+
+## Completion and limits
+
+The required model, JSON persistence, command line, FastAPI routes, public
+website integration, admin integration and automated tests are implemented.
+The project also includes inheritance, an abstract class, custom errors,
+type annotations, Ruff checks and build configuration. Code comments and
+docstrings are intentionally omitted; the design is explained here.
+
+The optional SQLite extension is not implemented. The JSON application is
+intended to run as one server process; do not start several servers that
+write to the same file. The supplied admin has no authentication and is
+intended for local coursework use. No public deployment is included.

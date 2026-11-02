@@ -1,0 +1,4 @@
+include main.py API.md PROJECT_BRIEF.md uv.lock
+recursive-include data *.json
+recursive-include web *.html *.css *.js
+recursive-include tests *.py
